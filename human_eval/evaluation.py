@@ -5,6 +5,7 @@ import itertools
 
 import numpy as np
 import tqdm
+import pprint
 
 from human_eval.data import HUMAN_EVAL, read_problems, stream_jsonl, write_jsonl
 from human_eval.execution import check_correctness
@@ -42,6 +43,9 @@ def evaluate_functional_correctness(
     n_workers: int = 4,
     timeout: float = 3.0,
     problem_file: str = HUMAN_EVAL,
+    verbose = False,
+    suppress = False,
+    samples:List[dict] = None,
 ):
     """
     Evaluates the functional correctness of generated samples, and writes
@@ -57,11 +61,20 @@ def evaluate_functional_correctness(
         completion_id = Counter()
         n_samples = 0
         results = defaultdict(list)
+        completion_lengths = defaultdict(list)
 
-        print("Reading samples...")
-        for sample in tqdm.tqdm(stream_jsonl(sample_file)):
+        if samples is None:
+            if not suppress:
+                print("Reading samples...")
+            samples = stream_jsonl(sample_file)
+        samples = list(samples)
+        it = samples
+        if not suppress:
+            it = tqdm.tqdm(samples)
+        for sample in it:
             task_id = sample["task_id"]
             completion = sample["completion"]
+            completion_lengths[task_id].append(len(completion))
             args = (problems[task_id], completion, timeout, completion_id[task_id])
             future = executor.submit(check_correctness, *args)
             futures.append(future)
@@ -70,10 +83,19 @@ def evaluate_functional_correctness(
 
         assert len(completion_id) == len(problems), "Some problems are not attempted."
 
-        print("Running test suites...")
-        for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
+        it = as_completed(futures)
+
+        if not suppress:
+            print("Running test suites...")
+            it = tqdm.tqdm(it, total=len(futures))
+        for future in it:
             result = future.result()
             results[result["task_id"]].append((result["completion_id"], result))
+            if verbose:
+                print(f"task_id: {result['task_id']}: {result['passed']}")
+                print(result["completed_function"])
+                print()
+                
 
     # Calculate pass@k.
     total, correct = [], []
@@ -91,15 +113,20 @@ def evaluate_functional_correctness(
 
     # Finally, save the results in one file:
     def combine_results():
-        for sample in stream_jsonl(sample_file):
+        for sample in samples:
             task_id = sample["task_id"]
             result = results[task_id].pop(0)
             sample["result"] = result[1]["result"]
             sample["passed"] = result[1]["passed"]
             yield sample
 
-    out_file = sample_file + "_results.jsonl"
-    print(f"Writing results to {out_file}...")
-    write_jsonl(out_file, tqdm.tqdm(combine_results(), total=n_samples))
+    if sample_file is not None:
+        out_file = sample_file + "_results.jsonl"
+        print(f"Writing results to {out_file}...")
+        write_jsonl(out_file, tqdm.tqdm(combine_results(), total=n_samples))
 
-    return pass_at_k
+    extras = {
+        'completion_lengths': completion_lengths,
+    }
+
+    return pass_at_k, extras
