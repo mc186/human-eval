@@ -11,7 +11,7 @@ import tempfile
 
 
 def check_correctness(problem: Dict, completion: str, timeout: float,
-                      completion_id: Optional[int] = None) -> Dict:
+                      completion_id: Optional[int] = None, include_prompt=True) -> Dict:
     """
     Evaluates the functional correctness of a completion by running the test
     suite provided in the problem. 
@@ -34,9 +34,14 @@ def check_correctness(problem: Dict, completion: str, timeout: float,
             # Disable functionalities that can make destructive changes to the test.
             reliability_guard()
 
+            if include_prompt:
+                program = problem["prompt"]
+            else:
+                program = ""
+
             # Construct the check program and run it.
             check_program = (
-                problem["prompt"] + completion + "\n" +
+                program + completion + "\n" +
                 problem["test"] + "\n" +
                 f"check({problem['entry_point']})"
             )

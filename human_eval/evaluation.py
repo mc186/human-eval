@@ -45,6 +45,7 @@ def evaluate_functional_correctness(
     problem_file: str = HUMAN_EVAL,
     verbose = False,
     suppress = False,
+    strict = True,
     samples:List[dict] = None,
 ):
     """
@@ -81,7 +82,11 @@ def evaluate_functional_correctness(
             completion_id[task_id] += 1
             n_samples += 1
 
-        assert len(completion_id) == len(problems), "Some problems are not attempted."
+        if strict:
+            assert len(completion_id) == len(problems), "Some problems are not attempted."
+        else:
+            if not suppress and len(completion_id) != len(problems):
+                print("warning: some problems are not attempted")
 
         it = as_completed(futures)
 
